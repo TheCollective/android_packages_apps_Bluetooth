@@ -564,7 +564,7 @@ public class BluetoothMasService extends Service {
             for (BluetoothMasObexConnection connection : mConnections) {
                 // Stop the possible trying to init serverSocket
                 connection.mInterrupted = true;
-                connection.closeConnection();
+                connection.closeConnection(true);
             }
         }
 
@@ -651,12 +651,6 @@ public class BluetoothMasService extends Service {
             if (VERBOSE)
                 Log.v(TAG, "Map Service startRfcommSocketListener");
 
-            if (mServerSocket == null) {
-                if (!initSocket()) {
-                    closeService();
-                    return;
-                }
-            }
             if (mAcceptThread == null) {
                 mAcceptThread = new SocketAcceptThread(mnsClient, mMasId);
                 mAcceptThread.setName("BluetoothMapAcceptThread " + mPortNum);
@@ -709,14 +703,24 @@ public class BluetoothMasService extends Service {
             return initSocketOK;
         }
 
-        private final void closeSocket() throws IOException {
-            if (mConnSocket != null) {
+        private final void closeSocket(boolean server, boolean accept) throws IOException {
+            if (server) {
+                // Stop the possible trying to init serverSocket
+                mInterrupted = true;
+
+                if (mServerSocket != null) {
+                    mServerSocket.close();
+                    mServerSocket = null;
+                }
+            }
+
+            if (accept && mConnSocket != null) {
                 mConnSocket.close();
                 mConnSocket = null;
             }
         }
 
-        public void closeConnection() {
+        public void closeConnection(boolean closeServer) {
             if (VERBOSE) Log.v(TAG, "Mas connection closing");
 
             // Release the wake lock if obex transaction is over
@@ -724,21 +728,8 @@ public class BluetoothMasService extends Service {
                 if (mWakeLock.isHeld()) {
                     if (VERBOSE) Log.v(TAG,"Release full wake lock");
                     mWakeLock.release();
-                    mWakeLock = null;
-                } else {
-                    mWakeLock = null;
                 }
-            }
-
-            if (mAcceptThread != null) {
-                try {
-                    mAcceptThread.shutdown();
-                    mAcceptThread.join();
-                } catch (InterruptedException ex) {
-                    Log.w(TAG, "mAcceptThread  close error" + ex);
-                } finally {
-                    mAcceptThread = null;
-                }
+                mWakeLock = null;
             }
 
             if (mServerSession != null) {
@@ -747,10 +738,24 @@ public class BluetoothMasService extends Service {
             }
 
             try {
-                closeSocket();
+                closeSocket(closeServer, true);
             } catch (IOException ex) {
                 Log.e(TAG, "CloseSocket error: " + ex);
             }
+
+            if (mAcceptThread != null) {
+                try {
+                    if (closeServer) {
+                        mAcceptThread.shutdown();
+                        mAcceptThread.join();
+                    }
+                } catch (InterruptedException ex) {
+                    Log.w(TAG, "mAcceptThread  close error" + ex);
+                } finally {
+                    mAcceptThread = null;
+                }
+            }
+
             if (VERBOSE) Log.v(TAG, "Mas connection closed");
         }
 
@@ -803,7 +808,7 @@ public class BluetoothMasService extends Service {
         private void stopObexServerSession() {
             if (VERBOSE) Log.v(TAG, "Map Service stopObexServerSession ");
 
-            closeConnection();
+            closeConnection(false);
 
             // Last obex transaction is finished, we start to listen for incoming
             // connection again
@@ -830,11 +835,15 @@ public class BluetoothMasService extends Service {
 
             @Override
             public void run() {
+                if (mServerSocket == null) {
+                    if (!initSocket()) {
+                        closeService();
+                        return;
+                    }
+                }
+
                 while (!stopped) {
                     try {
-                        if (mServerSocket == null) {
-                            break;
-                        }
                         BluetoothSocket connSocket = mServerSocket.accept();
 
                         BluetoothDevice device = connSocket.getRemoteDevice();
@@ -883,9 +892,7 @@ public class BluetoothMasService extends Service {
                         }
                         stopped = true; // job done ,close this thread;
                     } catch (IOException ex) {
-                        if (stopped) {
-                            break;
-                        }
+                        stopped = true;
                         if (VERBOSE)
                             Log.v(TAG, "Accept exception: " + ex.toString());
                     }
@@ -896,14 +903,6 @@ public class BluetoothMasService extends Service {
                 if (VERBOSE) Log.v(TAG, "AcceptThread shutdown for MAS id: " + mMasId);
                 stopped = true;
                 interrupt();
-                if (mServerSocket != null) {
-                    try {
-                        mServerSocket.close();
-                        mServerSocket = null;
-                    } catch (IOException e) {
-                        Log.e(TAG, "Failed to close socket", e);
-                    }
-                }
             }
         }
     }
