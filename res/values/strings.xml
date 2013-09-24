@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Copyright (C) 2007 The Android Open Source Project
-
+     Copyright (C) 2012-2013 The CyanogenMod Project
+     Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
      Licensed under the Apache License, Version 2.0 (the "License");
      you may not use this file except in compliance with the License.
      You may obtain a copy of the License at
@@ -228,5 +229,9 @@
     <string name="sharedUserId" translatable="false"><xliff:g id="x" /></string>
     <!-- Do not translate. android:process of this application. -->
     <string name="process" translatable="false"><xliff:g id="x" /></string>
+   <!-- label for the notification if the zero length file is rejected by the remote device -->
+    <string name="empty_file_notification_sent">Bluetooth share: Remote rejected zero length file <xliff:g id="file">%1$s</xliff:g></string>
 
+    <string name="alwaysallowed">Always allowed?</string>
+    <string name="format_progress_text" translatable="false">%1$d%%</string>
 </resources>
