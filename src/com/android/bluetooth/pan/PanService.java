@@ -266,7 +266,6 @@ public class PanService extends ProfileService {
             return service.isPanUOn();
         }
         public boolean isTetheringOn() {
-            // TODO(BT) have a variable marking the on/off state
             PanService service = getService();
             if (service == null) return false;
             return service.isTetheringOn();
@@ -332,7 +331,6 @@ public class PanService extends ProfileService {
     void setBluetoothTethering(boolean value) {
         if(DBG) Log.d(TAG, "setBluetoothTethering: " + value +", mTetherOn: " + mTetherOn);
         enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM, "Need BLUETOOTH_ADMIN permission");
-
         if(mTetherOn != value) {
 
             SharedPreferences tetherSetting = getSharedPreferences(PAN_PREFERENCE_FILE, 0);

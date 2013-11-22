@@ -207,14 +207,12 @@ public class Constants {
      * Today, restricted to images, audio, video and certain text types.
      */
     public static final String[] ACCEPTABLE_SHARE_INBOUND_TYPES = new String[] {
-        "*",
         "image/*",
         "video/*",
         "audio/*",
         "text/x-vcard",
         "text/plain",
         "text/html",
-        "application/vnd.android.package-archive",
         "text/comma-separated-values",
         "application/zip",
         "application/vnd.ms-excel",

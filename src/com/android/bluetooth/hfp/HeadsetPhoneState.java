@@ -204,6 +204,8 @@ class HeadsetPhoneState {
             mService = (serviceState.getState() == ServiceState.STATE_IN_SERVICE) ?
                 HeadsetHalConstants.NETWORK_STATE_AVAILABLE :
                 HeadsetHalConstants.NETWORK_STATE_NOT_AVAILABLE;
+            setRoam(serviceState.getRoaming() ? HeadsetHalConstants.SERVICE_TYPE_ROAMING
+                                              : HeadsetHalConstants.SERVICE_TYPE_HOME);
             sendDeviceStateChanged();
         }
 
@@ -345,5 +347,15 @@ class HeadsetClccResponse {
         mMpty = mpty;
         mNumber = number;
         mType = type;
+    }
+}
+
+class HeadsetVendorSpecificResultCode {
+    String mCommand;
+    String mArg;
+
+    public HeadsetVendorSpecificResultCode(String command, String arg) {
+        mCommand = command;
+        mArg = arg;
     }
 }

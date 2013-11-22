@@ -51,7 +51,6 @@ import android.content.Intent;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
-import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.telephony.TelephonyManager;
@@ -140,8 +139,6 @@ public class BluetoothPbapService extends Service {
     private static final int NOTIFICATION_ID_ACCESS = -1000001;
 
     private static final int NOTIFICATION_ID_AUTH = -1000002;
-
-    private PowerManager.WakeLock mWakeLock = null;
 
     private BluetoothAdapter mAdapter;
 
@@ -243,6 +240,8 @@ public class BluetoothPbapService extends Service {
                     Intent timeoutIntent =
                         new Intent(BluetoothDevice.ACTION_CONNECTION_ACCESS_CANCEL);
                     timeoutIntent.setClassName(ACCESS_AUTHORITY_PACKAGE, ACCESS_AUTHORITY_CLASS);
+                    timeoutIntent.putExtra(BluetoothDevice.EXTRA_ACCESS_REQUEST_TYPE,
+                                     BluetoothDevice.REQUEST_TYPE_PHONEBOOK_ACCESS);
                     sendBroadcast(timeoutIntent, BLUETOOTH_ADMIN_PERM);
                 }
                 // Release all resources
@@ -264,12 +263,18 @@ public class BluetoothPbapService extends Service {
             if (mRemoteDevice.equals(device)) {
                 Intent cancelIntent = new Intent(BluetoothDevice.ACTION_CONNECTION_ACCESS_CANCEL);
                 cancelIntent.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
+                cancelIntent.putExtra(BluetoothDevice.EXTRA_ACCESS_REQUEST_TYPE,
+                                      BluetoothDevice.REQUEST_TYPE_PHONEBOOK_ACCESS);
                 sendBroadcast(cancelIntent);
                 isWaitingAuthorization = false;
                 stopObexServerSession();
             }
         } else if (action.equals(BluetoothDevice.ACTION_CONNECTION_ACCESS_REPLY)) {
-            if (!isWaitingAuthorization) {
+            int requestType = intent.getIntExtra(BluetoothDevice.EXTRA_ACCESS_REQUEST_TYPE,
+                                           BluetoothDevice.REQUEST_TYPE_PHONEBOOK_ACCESS);
+
+            if ((!isWaitingAuthorization) ||
+                (requestType != BluetoothDevice.REQUEST_TYPE_PHONEBOOK_ACCESS)) {
                 // this reply is not for us
                 return;
             }
@@ -434,11 +439,6 @@ public class BluetoothPbapService extends Service {
             }
         }
 
-        if (mWakeLock != null) {
-            mWakeLock.release();
-            mWakeLock = null;
-        }
-
         if (mServerSession != null) {
             mServerSession.close();
             mServerSession = null;
@@ -457,14 +457,6 @@ public class BluetoothPbapService extends Service {
     private final void startObexServerSession() throws IOException {
         if (VERBOSE) Log.v(TAG, "Pbap Service startObexServerSession");
 
-        // acquire the wakeLock before start Obex transaction thread
-        if (mWakeLock == null) {
-            PowerManager pm = (PowerManager)getSystemService(Context.POWER_SERVICE);
-            mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
-                    "StartingObexPbapTransaction");
-            mWakeLock.setReferenceCounted(false);
-            mWakeLock.acquire();
-        }
         TelephonyManager tm = (TelephonyManager)getSystemService(Context.TELEPHONY_SERVICE);
         if (tm != null) {
             sLocalPhoneNum = tm.getLine1Number();
@@ -490,12 +482,6 @@ public class BluetoothPbapService extends Service {
 
     private void stopObexServerSession() {
         if (VERBOSE) Log.v(TAG, "Pbap Service stopObexServerSession");
-
-        // Release the wake lock if obex transaction is over
-        if (mWakeLock != null) {
-            mWakeLock.release();
-            mWakeLock = null;
-        }
 
         if (mServerSession != null) {
             mServerSession.close();
@@ -599,8 +585,9 @@ public class BluetoothPbapService extends Service {
                         intent.putExtra(BluetoothDevice.EXTRA_PACKAGE_NAME, getPackageName());
                         intent.putExtra(BluetoothDevice.EXTRA_CLASS_NAME,
                                         BluetoothPbapReceiver.class.getName());
-                        sendBroadcast(intent, BLUETOOTH_ADMIN_PERM);
+
                         isWaitingAuthorization = true;
+                        sendBroadcast(intent, BLUETOOTH_ADMIN_PERM);
 
                         if (VERBOSE) Log.v(TAG, "waiting for authorization for connection from: "
                                 + sRemoteDeviceName);
@@ -647,6 +634,8 @@ public class BluetoothPbapService extends Service {
                 case USER_TIMEOUT:
                     Intent intent = new Intent(BluetoothDevice.ACTION_CONNECTION_ACCESS_CANCEL);
                     intent.putExtra(BluetoothDevice.EXTRA_DEVICE, mRemoteDevice);
+                    intent.putExtra(BluetoothDevice.EXTRA_ACCESS_REQUEST_TYPE,
+                                    BluetoothDevice.REQUEST_TYPE_PHONEBOOK_ACCESS);
                     sendBroadcast(intent);
                     isWaitingAuthorization = false;
                     stopObexServerSession();

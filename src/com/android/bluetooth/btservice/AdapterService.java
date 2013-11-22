@@ -77,8 +77,10 @@ public class AdapterService extends Service {
     //For Debugging only
     private static int sRefCount=0;
 
-    public static final String ACTION_LOAD_ADAPTER_PROPERTIES="com.android.bluetooth.btservice.action.LOAD_ADAPTER_PROPERTIES";
-    public static final String ACTION_SERVICE_STATE_CHANGED="com.android.bluetooth.btservice.action.STATE_CHANGED";
+    public static final String ACTION_LOAD_ADAPTER_PROPERTIES =
+        "com.android.bluetooth.btservice.action.LOAD_ADAPTER_PROPERTIES";
+    public static final String ACTION_SERVICE_STATE_CHANGED =
+        "com.android.bluetooth.btservice.action.STATE_CHANGED";
     public static final String EXTRA_ACTION="action";
     public static final int PROFILE_CONN_CONNECTED  = 1;
     public static final int PROFILE_CONN_REJECTED  = 2;
@@ -272,9 +274,12 @@ public class AdapterService extends Service {
         return mBinder;
     }
     public boolean onUnbind(Intent intent) {
-        if (DBG) debugLog("onUnbind, calling cleanup");
-        cleanup();
-        return super.onUnbind(intent);
+        if (getState() == BluetoothAdapter.STATE_OFF) {
+            if (DBG) debugLog("onUnbind, calling cleanup");
+            cleanup();
+            return super.onUnbind(intent);
+        }
+        return false;
     }
 
     public void onDestroy() {
@@ -913,6 +918,41 @@ public class AdapterService extends Service {
             return service.createSocketChannel(type, serviceName, uuid, port, flag);
         }
 
+        public int setSocketOpt(int type, int channel, int optionName, byte [] optionVal,
+                                                    int optionLen) {
+            if (!Utils.checkCaller()) {
+                Log.w(TAG,"setSocketOpt(): not allowed for non-active user");
+                return -1;
+            }
+
+            AdapterService service = getService();
+            if (service == null) return -1;
+            return service.setSocketOpt(type, channel, optionName, optionVal, optionLen);
+        }
+
+        public int getSocketOpt(int type, int channel, int optionName, byte [] optionVal) {
+            if (!Utils.checkCaller()) {
+                Log.w(TAG,"getSocketOpt(): not allowed for non-active user");
+                return -1;
+            }
+
+            AdapterService service = getService();
+            if (service == null) return -1;
+            return service.getSocketOpt(type, channel, optionName, optionVal);
+        }
+
+        public boolean configHciSnoopLog(boolean enable) {
+            if ((Binder.getCallingUid() != Process.SYSTEM_UID) &&
+                (!Utils.checkCaller())) {
+                Log.w(TAG,"configHciSnoopLog(): not allowed for non-active user");
+                return false;
+            }
+
+            AdapterService service = getService();
+            if (service == null) return false;
+            return service.configHciSnoopLog(enable);
+        }
+
         public void registerCallback(IBluetoothCallback cb) {
             AdapterService service = getService();
             if (service == null) return ;
@@ -956,7 +996,7 @@ public class AdapterService extends Service {
 
      public synchronized boolean enable(boolean quietMode) {
          enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
-                 "Need BLUETOOTH ADMIN permission");
+                                        "Need BLUETOOTH ADMIN permission");
          if (DBG)debugLog("Enable called with quiet mode status =  " + mQuietmode);
          mQuietmode  = quietMode;
          Message m =
@@ -967,7 +1007,7 @@ public class AdapterService extends Service {
 
      boolean disable() {
         enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
-                "Need BLUETOOTH ADMIN permission");
+                                       "Need BLUETOOTH ADMIN permission");
 
         if (DBG) debugLog("disable() called...");
         Message m =
@@ -992,7 +1032,7 @@ public class AdapterService extends Service {
 
      String getName() {
         enforceCallingOrSelfPermission(BLUETOOTH_PERM,
-                "Need BLUETOOTH permission");
+                                       "Need BLUETOOTH permission");
 
         try {
             return mAdapterProperties.getName();
@@ -1004,7 +1044,7 @@ public class AdapterService extends Service {
 
      boolean setName(String name) {
         enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
-                "Need BLUETOOTH ADMIN permission");
+                                       "Need BLUETOOTH ADMIN permission");
 
         return mAdapterProperties.setName(name);
     }
@@ -1038,14 +1078,14 @@ public class AdapterService extends Service {
 
      boolean startDiscovery() {
         enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
-                "Need BLUETOOTH ADMIN permission");
+                                       "Need BLUETOOTH ADMIN permission");
 
         return startDiscoveryNative();
     }
 
      boolean cancelDiscovery() {
         enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
-                "Need BLUETOOTH ADMIN permission");
+                                       "Need BLUETOOTH ADMIN permission");
 
         return cancelDiscoveryNative();
     }
@@ -1342,7 +1382,8 @@ public class AdapterService extends Service {
      }
 
      boolean setPin(BluetoothDevice device, boolean accept, int len, byte[] pinCode) {
-        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
+        enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
+                                       "Need BLUETOOTH ADMIN permission");
         DeviceProperties deviceProp = mRemoteDevices.getDeviceProperties(device);
         if (deviceProp == null || deviceProp.getBondState() != BluetoothDevice.BOND_BONDING) {
             return false;
@@ -1365,7 +1406,8 @@ public class AdapterService extends Service {
     }
 
      boolean setPairingConfirmation(BluetoothDevice device, boolean accept) {
-        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
+        enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
+                                       "Need BLUETOOTH ADMIN permission");
         DeviceProperties deviceProp = mRemoteDevices.getDeviceProperties(device);
         if (deviceProp == null || deviceProp.getBondState() != BluetoothDevice.BOND_BONDING) {
             return false;
@@ -1408,6 +1450,24 @@ public class AdapterService extends Service {
             return null;
         }
         return ParcelFileDescriptor.adoptFd(fd);
+    }
+
+     int setSocketOpt(int type, int channel, int optionName, byte [] optionVal,
+             int optionLen) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
+
+        return setSocketOptNative(type, channel, optionName, optionVal, optionLen);
+     }
+
+     int getSocketOpt(int type, int channel, int optionName, byte [] optionVal) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
+
+        return getSocketOptNative(type, channel, optionName, optionVal);
+     }
+
+    boolean configHciSnoopLog(boolean enable) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
+        return configHciSnoopLogNative(enable);
     }
 
      void registerCallback(IBluetoothCallback cb) {
@@ -1484,6 +1544,14 @@ public class AdapterService extends Service {
                                            byte[] uuid, int port, int flag);
     private native int createSocketChannelNative(int type, String serviceName,
                                                  byte[] uuid, int port, int flag);
+
+    private native int setSocketOptNative(int fd, int type, int optionName,
+                                byte [] optionVal, int optionLen);
+
+    private native int  getSocketOptNative(int fd, int type, int optionName,
+                                byte [] optionVal);
+
+    /*package*/ native boolean configHciSnoopLogNative(boolean enable);
 
     protected void finalize() {
         cleanup();

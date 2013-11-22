@@ -1,4 +1,5 @@
-/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
+/*
+ * Copyright (c) 2013, The Linux Foundation. All rights reserved.
  * Not a Contribution.
  *
  * Copyright (C) 2012 The Android Open Source Project
@@ -65,7 +66,9 @@ import com.android.internal.util.IState;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import android.os.SystemProperties;
 
@@ -101,8 +104,8 @@ final class HeadsetStateMachine extends StateMachine {
     static final int CALL_STATE_CHANGED = 9;
     static final int INTENT_BATTERY_CHANGED = 10;
     static final int DEVICE_STATE_CHANGED = 11;
-    static final int ROAM_CHANGED = 12;
-    static final int SEND_CCLC_RESPONSE = 13;
+    static final int SEND_CCLC_RESPONSE = 12;
+    static final int SEND_VENDOR_SPECIFIC_RESULT_CODE = 13;
 
     static final int VIRTUAL_CALL_START = 14;
     static final int VIRTUAL_CALL_STOP = 15;
@@ -117,6 +120,9 @@ final class HeadsetStateMachine extends StateMachine {
 
     private static final int DIALING_OUT_TIMEOUT_VALUE = 10000;
     private static final int START_VR_TIMEOUT_VALUE = 5000;
+
+    // Keys are AT commands, and values are the company IDs.
+    private static final Map<String, Integer> VENDOR_SPECIFIC_AT_COMMAND_COMPANY_ID;
 
     /* Constants from Bluetooth Specification Hands-Free profile version 1.6 */
     private static final int BRSF_AG_THREE_WAY_CALLING = 1 << 0;
@@ -151,9 +157,6 @@ final class HeadsetStateMachine extends StateMachine {
         BluetoothUuid.Handsfree,
     };
 
-    private static final String ACTION_VOICE_COMMAND_STOP =
-            "com.android.internal.intent.action.VOICE_COMMAND_STOP";
-
     private Disconnected mDisconnected;
     private Pending mPending;
     private Connected mConnected;
@@ -171,7 +174,6 @@ final class HeadsetStateMachine extends StateMachine {
     private AtPhonebook mPhonebook;
 
     private static Intent sVoiceCommandIntent;
-    private static Intent sVoiceCommandStopIntent;
 
     private HeadsetPhoneState mPhoneState;
     private int mAudioState;
@@ -212,6 +214,10 @@ final class HeadsetStateMachine extends StateMachine {
 
     static {
         classInitNative();
+
+        VENDOR_SPECIFIC_AT_COMMAND_COMPANY_ID = new HashMap<String, Integer>();
+        VENDOR_SPECIFIC_AT_COMMAND_COMPANY_ID.put("+XEVENT", BluetoothAssignedNumbers.PLANTRONICS);
+        VENDOR_SPECIFIC_AT_COMMAND_COMPANY_ID.put("+ANDROID", BluetoothAssignedNumbers.GOOGLE);
     }
 
     static {
@@ -241,8 +247,9 @@ final class HeadsetStateMachine extends StateMachine {
         mPhoneState = new HeadsetPhoneState(context, this);
         mAudioState = BluetoothHeadset.STATE_AUDIO_DISCONNECTED;
         mAdapter = BluetoothAdapter.getDefaultAdapter();
-        if (!context.bindService(new Intent(IBluetoothHeadsetPhone.class.getName()),
-                                 mConnection, 0)) {
+        Intent intent = new Intent(IBluetoothHeadsetPhone.class.getName());
+        intent.setComponent(intent.resolveSystemService(context.getPackageManager(), 0));
+        if (intent.getComponent() == null || !context.bindService(intent, mConnection, 0)) {
             Log.e(TAG, "Could not bind to Bluetooth Headset Phone Service");
         }
         initializeNative();
@@ -261,9 +268,6 @@ final class HeadsetStateMachine extends StateMachine {
         if (sVoiceCommandIntent == null) {
             sVoiceCommandIntent = new Intent(Intent.ACTION_VOICE_COMMAND);
             sVoiceCommandIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        }
-        if (sVoiceCommandStopIntent == null) {
-            sVoiceCommandStopIntent = new Intent(ACTION_VOICE_COMMAND_STOP);
         }
         if (context.getPackageManager().resolveActivity(sVoiceCommandIntent,0) != null
             && BluetoothHeadset.isBluetoothVoiceDialingEnabled(context)) {
@@ -365,9 +369,6 @@ final class HeadsetStateMachine extends StateMachine {
                     break;
                 case INTENT_BATTERY_CHANGED:
                     processIntentBatteryChanged((Intent) message.obj);
-                    break;
-                case ROAM_CHANGED:
-                    processRoamChanged((Boolean) message.obj);
                     break;
                 case CALL_STATE_CHANGED:
                     processCallState((HeadsetCallState) message.obj,
@@ -502,9 +503,6 @@ final class HeadsetStateMachine extends StateMachine {
                     break;
                 case INTENT_BATTERY_CHANGED:
                     processIntentBatteryChanged((Intent) message.obj);
-                    break;
-                case ROAM_CHANGED:
-                    processRoamChanged((Boolean) message.obj);
                     break;
                 case CALL_STATE_CHANGED:
                     processCallState((HeadsetCallState) message.obj,
@@ -739,14 +737,15 @@ final class HeadsetStateMachine extends StateMachine {
                 case INTENT_BATTERY_CHANGED:
                     processIntentBatteryChanged((Intent) message.obj);
                     break;
-                case ROAM_CHANGED:
-                    processRoamChanged((Boolean) message.obj);
-                    break;
                 case DEVICE_STATE_CHANGED:
                     processDeviceStateChanged((HeadsetDeviceState) message.obj);
                     break;
                 case SEND_CCLC_RESPONSE:
                     processSendClccResponse((HeadsetClccResponse) message.obj);
+                    break;
+                case SEND_VENDOR_SPECIFIC_RESULT_CODE:
+                    processSendVendorSpecificResultCode(
+                            (HeadsetVendorSpecificResultCode) message.obj);
                     break;
                 case DIALING_OUT_TIMEOUT:
                     if (mDialingOut) {
@@ -988,14 +987,15 @@ final class HeadsetStateMachine extends StateMachine {
                 case INTENT_BATTERY_CHANGED:
                     processIntentBatteryChanged((Intent) message.obj);
                     break;
-                case ROAM_CHANGED:
-                    processRoamChanged((Boolean) message.obj);
-                    break;
                 case DEVICE_STATE_CHANGED:
                     processDeviceStateChanged((HeadsetDeviceState) message.obj);
                     break;
                 case SEND_CCLC_RESPONSE:
                     processSendClccResponse((HeadsetClccResponse) message.obj);
+                    break;
+                case SEND_VENDOR_SPECIFIC_RESULT_CODE:
+                    processSendVendorSpecificResultCode(
+                            (HeadsetVendorSpecificResultCode) message.obj);
                     break;
 
                 case VIRTUAL_CALL_START:
@@ -1121,7 +1121,14 @@ final class HeadsetStateMachine extends StateMachine {
                 case HeadsetHalConstants.AUDIO_STATE_DISCONNECTED:
                     if (mAudioState != BluetoothHeadset.STATE_AUDIO_DISCONNECTED) {
                         mAudioState = BluetoothHeadset.STATE_AUDIO_DISCONNECTED;
+                    if (mAudioManager.isSpeakerphoneOn()) {
+                        // User option might be speaker as sco disconnection
+                        // is delayed setting back the speaker option.
                         mAudioManager.setBluetoothScoOn(false);
+                        mAudioManager.setSpeakerphoneOn(true);
+                    } else {
+                        mAudioManager.setBluetoothScoOn(false);
+                    }
                         if (mA2dpSuspend) {
                             if ((!isInCall()) && (mPhoneState.getNumber().isEmpty())) {
                                 log("Audio is closed,Set A2dpSuspended=false");
@@ -1271,7 +1278,6 @@ final class HeadsetStateMachine extends StateMachine {
                 atResponseCodeNative(HeadsetHalConstants.AT_RESPONSE_OK, 0);
                 mVoiceRecognitionStarted = false;
                 mWaitingForVoiceRecognition = false;
-                mService.sendBroadcast(sVoiceCommandStopIntent);
                 if (!isInCall()) {
                     disconnectAudioNative(getByteAddress(mCurrentDevice));
                     mAudioManager.setParameters("A2dpSuspended=false");
@@ -1984,21 +1990,40 @@ final class HeadsetStateMachine extends StateMachine {
         return out.toArray();
     }
 
-    private void processAtXevent(String atString) {
-        log("processAtXevent - atString = "+ atString);
-        if (atString.startsWith("=") && !atString.startsWith("=?")) {
-            Object[] args = generateArgs(atString.substring(1));
-            broadcastVendorSpecificEventIntent("+XEVENT",
-                                               BluetoothAssignedNumbers.PLANTRONICS,
-                                               BluetoothHeadset.AT_CMD_TYPE_SET,
-                                               args,
-                                               mCurrentDevice);
-            atResponseCodeNative(HeadsetHalConstants.AT_RESPONSE_OK, 0);
+    /**
+     * @return {@code true} if the given string is a valid vendor-specific AT command.
+     */
+    private boolean processVendorSpecificAt(String atString) {
+        log("processVendorSpecificAt - atString = " + atString);
+
+        // Currently we accept only SET type commands.
+        int indexOfEqual = atString.indexOf("=");
+        if (indexOfEqual == -1) {
+            Log.e(TAG, "processVendorSpecificAt: command type error in " + atString);
+            return false;
         }
-        else {
-            Log.e(TAG, "processAtXevent: command type error");
-            atResponseCodeNative(HeadsetHalConstants.AT_RESPONSE_ERROR, 0);
+
+        String command = atString.substring(0, indexOfEqual);
+        Integer companyId = VENDOR_SPECIFIC_AT_COMMAND_COMPANY_ID.get(command);
+        if (companyId == null) {
+            Log.e(TAG, "processVendorSpecificAt: unsupported command: " + atString);
+            return false;
         }
+
+        String arg = atString.substring(indexOfEqual + 1);
+        if (arg.startsWith("?")) {
+            Log.e(TAG, "processVendorSpecificAt: command type error in " + atString);
+            return false;
+        }
+
+        Object[] args = generateArgs(arg);
+        broadcastVendorSpecificEventIntent(command,
+                                           companyId,
+                                           BluetoothHeadset.AT_CMD_TYPE_SET,
+                                           args,
+                                           mCurrentDevice);
+        atResponseCodeNative(HeadsetHalConstants.AT_RESPONSE_OK, 0);
+        return true;
     }
 
     private void processUnknownAt(String atString) {
@@ -2012,9 +2037,7 @@ final class HeadsetStateMachine extends StateMachine {
             processAtCpbs(atCommand.substring(5), commandType);
         else if (atCommand.startsWith("+CPBR"))
             processAtCpbr(atCommand.substring(5), commandType, mCurrentDevice);
-        else if (atCommand.startsWith("+XEVENT"))
-            processAtXevent(atCommand.substring(7));
-        else
+        else if (!processVendorSpecificAt(atCommand))
             atResponseCodeNative(HeadsetHalConstants.AT_RESPONSE_ERROR, 0);
     }
 
@@ -2167,11 +2190,6 @@ final class HeadsetStateMachine extends StateMachine {
         mPhoneState.setBatteryCharge(batteryLevel);
     }
 
-    private void processRoamChanged(boolean roam) {
-        mPhoneState.setRoam(roam ? HeadsetHalConstants.SERVICE_TYPE_ROAMING :
-                            HeadsetHalConstants.SERVICE_TYPE_HOME);
-    }
-
     private void processDeviceStateChanged(HeadsetDeviceState deviceState) {
         notifyDeviceStatusNative(deviceState.mService, deviceState.mRoam, deviceState.mSignal,
                                  deviceState.mBatteryCharge);
@@ -2180,6 +2198,14 @@ final class HeadsetStateMachine extends StateMachine {
     private void processSendClccResponse(HeadsetClccResponse clcc) {
         clccResponseNative(clcc.mIndex, clcc.mDirection, clcc.mStatus, clcc.mMode, clcc.mMpty,
                            clcc.mNumber, clcc.mType);
+    }
+
+    private void processSendVendorSpecificResultCode(HeadsetVendorSpecificResultCode resultCode) {
+        String stringToSend = resultCode.mCommand + ": ";
+        if (resultCode.mArg != null) {
+            stringToSend += resultCode.mArg;
+        }
+        atResponseStringNative(stringToSend);
     }
 
     private String getCurrentDeviceName() {

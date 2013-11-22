@@ -248,6 +248,10 @@ class AdapterProperties {
                     mBondedDevices.add(device);
                 }
             } else if (state == BluetoothDevice.BOND_NONE) {
+                // Setting remote trust to false
+                boolean result = mService.setRemoteTrust(device, false);
+                debugLog("setRemoteTrust() result=" + result);
+
                 // remove device from list
                 if (mBondedDevices.remove(device))
                     debugLog("Removing bonded device:" +  device);
@@ -543,6 +547,21 @@ class AdapterProperties {
         //continue with disable sequence
         debugLog("onBluetoothDisable()");
         mBluetoothDisabling = true;
+
+        if (getState() == BluetoothAdapter.STATE_TURNING_OFF) {
+           switch (mScanMode) {
+               case BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE:
+                   if (mDiscoverableTimeout != 0)
+                       setScanMode(AbstractionLayer.BT_SCAN_MODE_CONNECTABLE);
+                   else
+                       setScanMode(AbstractionLayer.BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE);
+                   break;
+               case BluetoothAdapter.SCAN_MODE_NONE:
+               case BluetoothAdapter.SCAN_MODE_CONNECTABLE:
+               default:
+                   setScanMode(AbstractionLayer.BT_SCAN_MODE_CONNECTABLE);
+           }
+        }
     }
     void discoveryStateChangeCallback(int state) {
         infoLog("Callback:discoveryStateChangeCallback with state:" + state + " disc: " + mDiscovering);
